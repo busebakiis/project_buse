@@ -1,0 +1,399 @@
+---
+title: "570 Project"
+author: "Buse Bakış"
+format: html
+editor: visual
+---
+
+### Police Department Stop Data
+
+## 570 - Project
+
+The San Francisco Police Department (SFPD) Stop Data was designed to capture information to comply with the Racial and Identity Profiling Act (RIPA), or California Assembly Bill (AB)953. SFPD officers collect specific information on each stop, including elements of the stop, circumstances and the perceived identity characteristics of the individual(s) stopped. The information obtained by officers is reported to the California Department of Justice. This dataset includes data on stops starting on July 1st, 2018, which is when the data collection program went into effect
+
+This dataset includes information about police stops that occurred, including some details about the person(s) stopped, and what happened during the stop. Each row is a person stopped with a record identifier for the stop and a unique identifier for the person. A single stop may involve multiple people and may produce more than one associated unique identifier for the same record identifier.
+
+```{r setup, warning=FALSE,message=FALSE}
+
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+
+library(lubridate)
+library(tidyverse)
+library(plotly)
+library(dplyr)
+library(ggplot2)
+library(hrbrthemes)
+library(viridis)
+library(MASS) 
+library(reshape2) 
+library(reshape)
+library(ggmap)
+library(leaflet)
+library(stringr)
+library(wordcloud)
+
+stop <- read.csv("stopdata.csv", sep = ",")
+
+#summary(stop)
+#str(stop)
+#colSums(is.na(stop))
+
+
+stop$date <- ymd_hms(stop$stop_datetime)
+#str(stop)
+
+
+stop$doj_record_id <- as.factor(stop$doj_record_id)
+
+
+stop <- stop |>
+  group_by(unique_identifier) |>
+  mutate(count = n())
+
+
+```
+
+## Introduction
+
+In this project to investigate police stop data and traffic accident that caused a person injury in San Francisco data is used.
+
+One of the dataset is between in 2018-2023 (Police Stop Data), and the other is (Accident data) between in 2005-2023. However, to worked in same period it was selected as 2018-2023.
+
+There is a 244934 observation and 87 variable in Police Stop data, and 57456 observation and 57 variable in Accident data.
+
+Firstly, structure of the Police Stop data was investigate only numeric variables are numeric and others even if date variable was also character variable, date variable changed as date with the function from lubridate package, and the monthly trends of number of stops is check with the interactive plotly line plot.
+
+There was a huge dramatic decrease in February 2020, probably pandemic situation is affected the rate of the stop people to be safe from Covid with less interaction. May be police officer just give the penalty tickets without stopping.
+
+```{r}
+stop_monthly <- stop |>
+    group_by(date = lubridate::floor_date(date, 'month')) |>
+    summarize(count = sum(count)) 
+
+#str(stop_monthly)
+
+fig <- plot_ly(stop_monthly, x = ~date, y = ~count, type = 'scatter', mode = 'lines') |>
+    layout(title = 'Trend of number of people stoped by police 2018-2023', plot_bgcolor = "#e5ecf6", xaxis = list(title = 'Date'), 
+         yaxis = list(title = 'Count of stop'))
+fig
+
+```
+
+In this dataset, many police stopped value are collected but some of them after collection as changed status as deleted, in this project only "Completed - Successful Submission" status data included.
+
+```{r}
+
+stop_age <- stop |>
+    group_by(gender = as.factor(perceived_gender), age = perceived_age) |>
+    summarize(count = sum(count))
+
+ggplot(stop_age, aes(x = age  , y = count, colour = gender )) +
+  geom_line()
+
+stop <- stop |> 
+  filter(perceived_age < 80 && perceived_age > 16) |> 
+  filter(stop_data_record_status == "Completed - Successful Submission")
+
+factor_stop <- as.data.frame(unclass(stop), stringsAsFactors = TRUE)
+#str(factor_stop)
+#summary(factor_stop)
+
+
+stop_age2 <- stop |>
+    group_by(gender = as.factor(perceived_gender), age = as.factor(perceived_age_group)) |>
+    summarize(count =n()) |>
+    filter(gender %in% c("Male","Female"))
+    
+
+#install.packages("hrbrthemes")
+
+ggplot(stop_age2, aes(fill=gender, y=count, x=age)) + 
+    geom_bar(position="dodge", stat="identity") +
+    scale_fill_viridis(discrete = T, option = "E") +
+    ggtitle("Gender vs Age Groups") +
+    facet_wrap(~gender) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+    xlab("")
+
+```
+
+## Demographic Informations
+
+Therefore, some demographic information are checked. Firstly, gender are ages analysed with line plot. The most of them are male and their ages is in between 25 to 50. Other most occurent gender is female with same age group. There is a very small group of transgender people. But it can be seen in this plot, there are some outlier in age, in California getting driver licence age is 16.5 but data starts from 1, also there should be no people to drive after 80 years old but there is some values in close of 125. So, the data is filtered as age between 16 and 80.
+
+```{r}
+
+summary(factor_stop$perceived_race_ethnicity)
+summary(factor_stop$perceived_age_group)
+
+stop_eth <- stop |>
+    group_by(age = perceived_age_group, 
+             ethnic = perceived_race_ethnicity) |>
+    summarize(count = sum(count))
+#stop_eth
+
+
+levels(as.factor(stop_eth$ethnic))
+
+stop_eth <- stop_eth |> 
+  mutate(count = case_when(ethnic == "Asian" ~ count*0.17,
+                           ethnic == "Middle Eastern or South Asian"~ count*0.17,
+                           ethnic == "Hispanic/Latino(a)"~ count*0.15,
+                           ethnic == "White"~ count*0.43, 
+                           ethnic == "Black/African American"~ count*0.052,
+                           ethnic == "Multi-racial"~ count*0.08, 
+                           ethnic == "Native American"~ count*0.005,
+                           ethnic == "Pacific Islander"~ count*0.003)
+         )
+  
+  
+ggplot(data=stop_eth, aes(x=age, y=count, fill=ethnic)) + 
+  geom_bar(stat="identity") +
+  scale_fill_brewer(palette="Blues")
+
+
+```
+
+After checking age and gender values, ethnicity of person is investigated. In USA many African American people blame the police officers according to they are becoming suspicious because of their races. However, according to population values of San Francisco, the only 5 % of people are African American in total population, so even if the small population rate, the police officers usually stop African Americans. Furthermore, in the all age groups white people are mostly stopped by police officers, this makes sence since almost half of the population is constructed by the white people. Also, hispanic peoples' rate of population is 15 % and they have larger stopped rate than the other ethnicities. 
+
+
+
+## Accident Data vs Police Stop Data Trend
+
+To checked is there any relationship between stop rate and crash rate, it was used Traffic Accident data collected from San Francisco government open data library, and corrected date values like Police Stop data.
+
+Even if crash rate is less than the police stop rate, it has similar trend with the stop rate. In beginning of pandemic, the crash rate sharply decreased but after a while it started increase again. May be this trend is affected by seasonality, in beginning of the every year, there is some decreasing.
+
+```{r}
+
+crash <- read.csv("crashes.csv", sep = ",")
+
+crash$collision_datetime <- sub("[[:space:]].*", "", crash$collision_datetime)
+
+crash$collision_datetime <- as.Date(crash$collision_datetime, "%m/%d/%Y")
+
+crash$date <- as.POSIXct(crash$collision_datetime, format="%Y-%m-%d",tz="UTC")
+
+#str(crash)
+
+crash <- crash |>
+  group_by(unique_id) |>
+  mutate(count = n())
+
+crash_monthly <- crash |>
+    group_by(date = lubridate::floor_date(date, 'month')) |>
+    summarize(count = sum(count)) 
+
+crash_monthly <- subset(crash_monthly, date >= "2018-07-01" & date <= "2023-06-01")
+
+
+monthly_data <- cbind(crash_monthly, stop_monthly)
+monthly_data <- monthly_data[,-3]
+colnames(monthly_data) <- c("date", "crash_count", "stop_count")
+
+
+
+melt_data <- melt(monthly_data, id = c("date")) 
+#melt_data
+
+ggplot(crash_monthly, aes(x = date, y = count)) + 
+  geom_line() + 
+  scale_color_manual(values = "darkred")
+
+ggplot(melt_data, aes(x = date, y = value)) + 
+  geom_line(aes(color = variable, linetype = variable)) + 
+  scale_color_manual(values = c("darkred", "steelblue"))
+```
+
+## Duration Time according to Demographic Informations
+
+When the police officer is stopped the person, is the ethnicity or the age affected the stop duration time? May be some younger people are afraid of getting the penalty ticket, or African Americans are stopped more longer for trying the correct the situation. To analyse these claims some interactive box-plots are created.
+
+```{r}
+no_na_df<- stop[!is.na(stop$latitude), ]
+df <- no_na_df |>
+  group_by(longitude,latitude) |>
+  summarise(cnt = n())
+
+out <- boxplot.stats(no_na_df$duration_of_stop)$out
+out_ind <- which(no_na_df$duration_of_stop %in% c(out))
+#out_ind
+df2 <- no_na_df[-out_ind, ]
+
+
+plot_ly(
+  data = df2,
+  x = ~perceived_race_ethnicity,
+  y = ~duration_of_stop,
+  type = "box",
+  color = ~perceived_race_ethnicity,
+  showlegend = FALSE) %>%
+  layout(xaxis = list(title = 'Ethnicity'), 
+  yaxis = list(title = 'Duration time (minute)' ) 
+  )
+```
+
+In above plot, it can be see that African American people have the highest duration of stop rate, but in Asians (normal and middle/south eastern) there is a weird situation. Although their average duration is shorter from many other ethnicity but they includes many outliers in higher minutes.
+
+```{r}
+
+plot_ly(
+  data = df2,
+  x = ~perceived_age_group,
+  y = ~duration_of_stop,
+  type = "box",
+  color = ~perceived_age_group,
+  showlegend = FALSE) %>%
+  layout(xaxis = list(title = 'Age Group'), 
+  yaxis = list(title = 'Duration time (minute)' ) 
+  )
+
+
+```
+
+After that checked ethnicity, also age groups are check according to duration time. As it expected 60 or over people duration time is shorter than the other age groups, but under 18 age group have the highest avarage duration rate and the longest ranges. However, other age groups duration minute rate are almost exactly same.
+
+## Stop Points vs Crash Points
+
+As many people known that the police stop points are generally in the same spots. In the Police Stop dataset there was some geospatial values for stopping spot as longitude and latitude information. To see this spot in the map longitude and latitude values are grouped and counted as how many people stopped there. The most of the stop points had just 1 stopped. However to see the most popular stopping places having more than 100 stop places are selected. In the one place, the police officer stopped 2569 different people.
+
+To see the crashes in the map firstly longitude and latitude values created from point variable because it collected weird way as POINT (...). To create the geospatial information from this variable with the StringR packages some string functions deleted unnecessary characters, then separeted variable into two different variables as longitude and latitude.
+
+```{r}
+
+summary(df$cnt)
+mybins <- seq(100, 2569, by=400)
+mypalette <- colorBin( palette="YlOrBr", domain=quakes$mag, na.color="transparent", bins=mybins)
+
+
+m <- leaflet(df) %>% 
+  addTiles()  %>% 
+  setView( lat=37.773972, lng=-122.431297, zoom=11) %>%
+  addProviderTiles("Esri.WorldImagery") %>%
+  addCircleMarkers(~longitude, ~latitude, 
+    fillColor = ~mypalette(cnt), fillOpacity = 0.7, color="white", radius=8, stroke=FALSE,
+    labelOptions = labelOptions( style = list("font-weight" = "normal", padding = "3px 8px"), textsize = "13px", direction = "auto")
+  ) %>%
+  addLegend(pal=mypalette, values=~cnt, opacity=0.5, title = "count", position = "bottomright" )
+
+```
+
+```{r}
+
+head(crash$point)
+
+
+crash$point<-gsub("POINT ","",as.character(crash$point))
+crash$point<-gsub(")","",as.character(crash$point))
+crash$point<-gsub("^.{0,1}","",as.character(crash$point))
+
+df1 <- crash
+
+df1[c('lon', 'lat')] <- str_split_fixed(crash$point, ' ', 2)
+df1$lon <- as.numeric(df1$lon)
+df1$lat <- as.numeric(df1$lat)
+
+
+df1 <- df1 |>
+  group_by(lon,lat) |>
+  summarise(cnt = n())
+summary(df1)
+
+mybins1 <- seq(5, 197, by=30)
+mypalette1 <- colorBin( palette="YlOrBr", domain=df1$cnt, na.color="transparent", bins=mybins1)
+
+
+m1 <- leaflet(df1) %>% 
+  addTiles()  %>% 
+  setView(lat=37.773972, lng=-122.431297, zoom=11) %>%
+  addProviderTiles("Esri.WorldImagery") %>%
+  addCircleMarkers(~lon, ~lat, 
+    fillColor = ~mypalette1(cnt), fillOpacity = 0.7, color="white", radius=8, stroke=FALSE,
+    labelOptions = labelOptions( style = list("font-weight" = "normal", padding = "3px 8px"), textsize = "13px", direction = "auto")
+  ) %>%
+  addLegend(pal=mypalette1, values=~cnt, opacity=0.5, title = "count", position = "bottomright" )
+
+```
+
+```{r}
+par(mfrow=c(1,2))
+m
+m1
+```
+
+After that mapped the longitude and latitude variables, there was no surprising result there was a the most popular place both for crashes and police stops, upper east side of the city. The most crashes are occurred in there, may be the police officers are also the mostly stopped in there for preventing the crashes.
+
+## Districts and Actions
+
+In San Francisco, there is many districts. However, in this dataset district levels are more than the number of districts. Because some of district wrote as lower case, others are upper case and some of them as N/A. Firstly, N/A's are dropped from data and others are converted as upper case.
+
+After that this steps, the district information grouped by and counted and visualized with the word cloud plot. So, the most stop occured in Southern, Mission and Central of San Francisco.
+
+Also, action that have taken is investigated in this project, but also this variable is collected with the weird way, the police officer wrote different action that have taken in one individual with "\|" as separator. For dividing the sentences used the seperate_delim_longer function, this separated sentences as different value but it leaves white spaces in the end and beginning of the sentences, and this white spaces deleted with str_trim function.
+
+Therefore, all the actions taken became a level, and visualized it also word cloud plot. Therefore, it can be seen as the most taken action is "Patrol car detention".
+
+```{r}
+
+area <- dplyr::select(stop, c("city","district","unique_identifier", "actions_taken"))
+area$city <- as.factor(area$city)
+area$district <- as.factor(area$district)
+
+
+head(area)
+
+sum(is.na(area$actions_taken))
+
+
+
+long <- area %>% separate_longer_delim(actions_taken, "|")
+
+long$actions_taken <- str_trim(long$actions_taken, side = c("both")) #if there is a white space it will delete
+long$actions_taken <- as.factor(long$actions_taken)
+
+#levels(long$actions_taken)
+#levels(long$district)
+long$district <- toupper(long$district)
+long$district <- as.factor(long$district)
+
+long1 <- subset(long, district =! "#N/A" )
+#levels(long1$district)
+
+
+df3 <- long |>
+  group_by(district, actions_taken) |>
+  summarise(count = n()) |>
+  arrange(desc(count))
+
+
+df4 <- subset(df3, actions_taken != "None")
+
+
+#install.packages("wordcloud")
+
+df3 <- df3 |>
+  group_by(district) |>
+  summarise(count=sum(count))
+
+df4 <- df4 |>
+  group_by(actions_taken) |>
+  summarise(count=sum(count))
+
+df3 %>% with(wordcloud(district, count, max.words = 30, random.order = FALSE, rot.per = 0.35, 
+    colors = brewer.pal(8, "Dark2")))
+
+df4 %>% with(wordcloud(actions_taken, count, max.words = 200, random.order = FALSE, rot.per = 0.15, 
+    colors = brewer.pal(8, "Dark2")))
+
+```
+
+
+
+### References
+
+San Francisco, California Population 2024. Worldpopulationreview. https://worldpopulationreview.com/us-cities/san-francisco-ca-population
+
+Police Department Stop Data. DataSF. https://data.sfgov.org/Public-Safety/Police-Department-Stop-Data/ubqf-aqzw/about_data
